@@ -98,17 +98,41 @@ rm -r $DIR/backup/$FILE_NAME
 
 # Send the file to the backup drive or S3
 
-HEADER_DATE=$(date -u "+%a, %d %b %Y %T %z")
-CONTENT_MD5=$(openssl dgst -md5 -binary $DIR/backup/$ARCHIVE_NAME | openssl enc -base64)
-CONTENT_TYPE="application/x-download"
-STRING_TO_SIGN="PUT\n$CONTENT_MD5\n$CONTENT_TYPE\n$HEADER_DATE\n/$S3_BUCKET/$ARCHIVE_NAME"
-SIGNATURE=$(echo -e -n $STRING_TO_SIGN | openssl dgst -sha1 -binary -hmac $AWS_SECRET_KEY | openssl enc -base64)
+cd $DIR/backup
 
-curl -X PUT \
---header "Host: $S3_BUCKET.s3-$S3_REGION.amazonaws.com" \
---header "Date: $HEADER_DATE" \
---header "content-type: $CONTENT_TYPE" \
---header "Content-MD5: $CONTENT_MD5" \
---header "Authorization: AWS $AWS_ACCESS_KEY:$SIGNATURE" \
---upload-file $DIR/backup/$ARCHIVE_NAME \
-https://$S3_BUCKET.s3-$S3_REGION.amazonaws.com/$ARCHIVE_NAME
+hmac="openssl dgst -binary -sha256 -mac HMAC -macopt hexkey:"
+hexdump="xxd -p -c 256"
+
+HEADERS="date;host;x-amz-acl;x-amz-content-sha256;x-amz-date"
+
+DATE_ISO=$(date -u "+%Y%m%dT%H%M%SZ")
+DATE_SHORT=$(date -u "+%Y%m%d")
+DATE_HEADER=$(date -u "+%a, %d %h %Y %T %Z")
+
+AWS_HMAC=$(echo -e -n AWS4$AWS_SECRET_KEY | $hexdump)
+DATE_HMAC=$(echo -e -n $DATE_SHORT | $hmac$AWS_HMAC | $hexdump)
+REGION_HMAC=$(echo -e -n $S3_REGION | $hmac$DATE_HMAC | $hexdump)
+SERVICE_HMAC=$(echo -e -n "s3" | $hmac$REGION_HMAC | $hexdump)
+SIGKEY=$(echo -e -n "aws4_request" | $hmac$SERVICE_HMAC | $hexdump)
+
+FILE_HASH=$(shasum -ba 256 "$ARCHIVE_NAME" | awk '{ print $1 }')
+CANONICAL_REQ="echo -e -n "PUT\\n/$ARCHIVE_NAME\\n\\ndate:$DATE_HEADER\\nhost:$S3_BUCKET.s3.amazonaws.com\\nx-amz-acl:public-read\\nx-amz-content-sha256:$FILE_HASH\\nx-amz-date:$DATE_ISO\\n\\n$HEADERS\\n$FILE_HASH""
+CANONICAL_REQ_HASH=$($CANONICAL_REQ | shasum -a 256 | awk '{ print $1 }')
+SIGN="echo -e -n "AWS4-HMAC-SHA256\\n$DATE_ISO\\n$DATE_SHORT/$S3_REGION/s3/aws4_request\\n$CANONICAL_REQ_HASH""
+SIGNATURE=$($SIGN | $hmac$SIGKEY | $hexdump )
+
+echo -e -n "AWS HTTP Response code: "
+
+curl -s -o /dev/null -w "%{http_code}" \
+  -T "$ARCHIVE_NAME" \
+  -H "Authorization: AWS4-HMAC-SHA256 Credential=$AWS_ACCESS_KEY/$DATE_SHORT/$S3_REGION/s3/aws4_request,SignedHeaders=$HEADERS,Signature=$SIGNATURE" \
+  -H "Date: $DATE_HEADER" \
+  -H "x-amz-acl: public-read" \
+  -H "x-amz-content-sha256: $FILE_HASH" \
+  -H "x-amz-date: $DATE_ISO" \
+  "https://$S3_BUCKET.s3.amazonaws.com/$ARCHIVE_NAME"
+
+echo ""
+
+# Remove the tarball
+rm $ARCHIVE_NAME

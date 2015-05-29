@@ -34,15 +34,6 @@ OPTIONAL:
 EOF
 }
 
-MONGODB_USER=
-MONGODB_PASSWORD=
-DATABASE=
-AWS_ACCESS_KEY=
-AWS_SECRET_KEY=
-S3_REGION=
-S3_BUCKET=
-FOLDER=
-
 while getopts “ht:u:p:d:k:s:r:b:f:” OPTION
 do
   case $OPTION in

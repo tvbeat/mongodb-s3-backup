@@ -147,7 +147,7 @@ SIGKEY=$(echo -e -n "aws4_request" | $hmac$SERVICE_HMAC | $hexdump)
 
 
 FILE_HASH=$(shasum -ba 256 "$ARCHIVE_NAME" | awk '{ print $1 }')
-CANONICAL_REQ="echo -e -n "PUT\\n/$PAYLOAD\\n\\ndate:$DATE_HEADER\\nhost:$S3_BUCKET.s3.amazonaws.com\\nx-amz-acl:public-read\\nx-amz-content-sha256:$FILE_HASH\\nx-amz-date:$DATE_ISO\\n\\n$HEADERS\\n$FILE_HASH""
+CANONICAL_REQ="echo -e -n "PUT\\n/$PAYLOAD\\n\\ndate:$DATE_HEADER\\nhost:$S3_BUCKET.s3.amazonaws.com\\nx-amz-acl:private\\nx-amz-content-sha256:$FILE_HASH\\nx-amz-date:$DATE_ISO\\n\\n$HEADERS\\n$FILE_HASH""
 CANONICAL_REQ_HASH=$($CANONICAL_REQ | shasum -a 256 | awk '{ print $1 }')
 SIGN="echo -e -n "AWS4-HMAC-SHA256\\n$DATE_ISO\\n$DATE_SHORT/$S3_REGION/s3/aws4_request\\n$CANONICAL_REQ_HASH""
 SIGNATURE=$($SIGN | $hmac$SIGKEY | $hexdump )
@@ -156,7 +156,7 @@ curl -s -o /dev/null -w "%{http_code}" \
   -T "$DIR/$ARCHIVE_NAME" \
   -H "Authorization: AWS4-HMAC-SHA256 Credential=$AWS_ACCESS_KEY/$DATE_SHORT/$S3_REGION/s3/aws4_request,SignedHeaders=$HEADERS,Signature=$SIGNATURE" \
   -H "Date: $DATE_HEADER" \
-  -H "x-amz-acl: public-read" \
+  -H "x-amz-acl: private" \
   -H "x-amz-content-sha256: $FILE_HASH" \
   -H "x-amz-date: $DATE_ISO" \
   "https://$S3_BUCKET.s3.amazonaws.com/$PAYLOAD"
